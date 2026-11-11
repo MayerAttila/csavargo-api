@@ -28,9 +28,9 @@ export function forwardAuthResponse(response: Response, reply: FastifyReply) {
 
 export function registerAuthRoutes(app: FastifyInstance, auth: Auth | undefined, publicUrl: string, consumeLimit?: (ip: string) => Promise<boolean>) {
   app.route({ method: ["GET", "POST"], url: "/api/auth/*", schema: { hide: true }, async handler(request, reply) {
-    if (!auth) return reply.code(503).send({ message: "Authentication unavailable" });
+    if (!auth) return reply.code(503).send({ code: "AUTH_UNAVAILABLE", message: "A bejelentkezési szolgáltatás jelenleg nem elérhető." });
     if (request.headers.origin && request.headers.origin !== new URL(publicUrl).origin) {
-      return reply.code(403).send({ message: "Nem engedélyezett kérési forrás." });
+      return reply.code(403).send({ code: "INVALID_ORIGIN", message: "Nem engedélyezett kérési forrás." });
     }
     if (consumeLimit && !await consumeLimit(request.ip)) return reply.code(429).header("retry-after", "60").send({ message: "Túl sok próbálkozás. Próbáld újra egy perc múlva." });
     const headers = fromNodeHeaders(request.headers);

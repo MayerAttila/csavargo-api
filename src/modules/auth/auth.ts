@@ -53,7 +53,7 @@ export function createAuth(prisma: PrismaClient, config: Config, sendMail: Maile
     },
     databaseHooks: { user: { create: { before: async (user) => {
       const name = user.name.trim();
-      if (!name || name.length > 100) throw new APIError("BAD_REQUEST", { message: "Invalid name" });
+      if (!name || name.length > 100) throw new APIError("BAD_REQUEST", { code: "INVALID_NAME", message: "Adj meg egy 1–100 karakteres nevet." });
       return { data: { ...user, name } };
     } } } },
   });

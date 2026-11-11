@@ -111,6 +111,7 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
   it("V4: rejects untrusted origins and spoofed client IPs; persists rate limits", async () => {
     const bad = await app.inject({ method: "POST", url: "/api/auth/sign-in/email", remoteAddress: "192.0.2.200", headers: { origin: "https://evil.example" }, payload: { email: email(), password } });
     expect(bad.statusCode).toBe(403);
+    expect(bad.json().code).toBe("INVALID_ORIGIN");
     const address = email();
     for (let i = 0; i < 5; i++) {
       const response = await app.inject({ method: "POST", url: "/api/auth/sign-in/email", remoteAddress: "192.0.2.201", headers: { origin: config.WEB_ORIGIN, "x-csavargo-client-ip": `198.51.100.${i}`, "x-forwarded-for": `198.51.100.${i}` }, payload: { email: address, password } });

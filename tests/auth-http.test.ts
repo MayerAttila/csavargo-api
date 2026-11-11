@@ -32,6 +32,9 @@ describe("auth HTTP boundary", () => {
     try {
       const response = await app.inject({ url: "/api/me" });
       expect(response.statusCode).toBe(401);
+      const unavailable = await app.inject({ method: "POST", url: "/api/auth/sign-up/email", payload: {} });
+      expect(unavailable.statusCode).toBe(503);
+      expect(unavailable.json().code).toBe("AUTH_UNAVAILABLE");
       const contract = (await app.inject({ url: "/api/openapi.json" })).json();
       expect(contract.paths["/api/me"].get.responses["200"].content["application/json"].schema.properties.user.required).toContain("emailVerified");
     } finally { await app.close(); }
