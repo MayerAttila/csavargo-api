@@ -55,10 +55,11 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     } finally { await prisma.userProfile.delete({ where: { id: profileId } }); }
   });
   it("V2: validates passwords and nonempty names", async () => {
-    for (const value of ["short", "x".repeat(129)]) {
+    for (const value of ["short", "x".repeat(7), "x".repeat(129)]) {
       expect((await request("/sign-up/email", { name: "Teszt", email: email(), password: value })).statusCode).toBe(400);
     }
     expect((await request("/sign-up/email", { name: "   ", email: email(), password })).statusCode).toBe(400);
+    expect((await request("/sign-up/email", { name: "Teszt", email: email(), password: "x".repeat(8) })).statusCode).toBe(200);
   });
   it("V1/V3: rejects bad credentials, expired sessions, and logged-out sessions", async () => {
     const user = await signup();

@@ -24,7 +24,7 @@ export function createAuth(prisma: PrismaClient, config: Config, sendMail: Maile
     database: prismaAdapter(prisma, { provider: "postgresql", transaction: true }),
     emailAndPassword: {
       enabled: true, autoSignIn: true, requireEmailVerification: false,
-      minPasswordLength: 12, maxPasswordLength: 128,
+      minPasswordLength: 8, maxPasswordLength: 128,
       resetPasswordTokenExpiresIn: 3600, revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => { await deliver(user.email, url, "reset"); },
     },
