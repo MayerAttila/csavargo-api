@@ -39,6 +39,37 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     await prisma.user.deleteMany({ where: { email: { in: emails } } });
     await app?.close(); await prisma.$disconnect();
   });
+  it("V28: trip snapshots are private and stale versions cannot overwrite another save", async () => {
+    const firstUser = await signup();
+    const secondUser = await signup();
+    const url = "/api/trip-plan";
+    const get = (cookie: string) => app.inject({ url, headers: { cookie } });
+    const put = (cookie: string, payload: unknown, origin = config.WEB_ORIGIN) =>
+      app.inject({ method: "PUT", url, headers: { cookie, origin, "content-type": "application/json" }, payload: JSON.stringify(payload) });
+    const destination = { id: "destination", label: "Pécs", coordinates: [18.23, 46.07] };
+    const first = { id: "museum", label: "Múzeum", coordinates: [18.24, 46.08] };
+    const second = { id: "park", label: "Park", coordinates: [18.25, 46.09] };
+    const date = "2026-11-18";
+    const plan = { destination, start: date, end: date, days: [{ date, stops: [first, second] }] };
+
+    expect((await app.inject({ url })).statusCode).toBe(401);
+    expect((await put("", { version: 0, plan })).statusCode).toBe(401);
+    expect((await put(firstUser.cookie, { version: 0, plan }, "https://example.test")).statusCode).toBe(403);
+    expect((await put(firstUser.cookie, { version: 0, plan: { ...plan, end: "2026-11-17" } })).statusCode).toBe(400);
+    const saved = await put(firstUser.cookie, { version: 0, plan });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json()).toEqual({ version: 1, plan });
+    const loaded = await get(firstUser.cookie);
+    expect(loaded.headers["cache-control"]).toBe("no-store");
+    expect(loaded.json()).toEqual(saved.json());
+    expect((await get(secondUser.cookie)).json()).toEqual({ version: 0, plan: null });
+
+    const updatedPlan = { ...plan, days: [{ date, stops: [second, first] }] };
+    expect((await put(firstUser.cookie, { version: 1, plan: updatedPlan })).json()).toEqual({ version: 2, plan: updatedPlan });
+    expect((await put(firstUser.cookie, { version: 1, plan: updatedPlan })).json()).toEqual({ version: 2, plan: updatedPlan });
+    expect((await put(firstUser.cookie, { version: 1, plan })).statusCode).toBe(409);
+    expect((await get(firstUser.cookie)).json()).toEqual({ version: 2, plan: updatedPlan });
+  });
   it("V1/V6: registration grants immediate unverified access and preserves profiles", async () => {
     const profileId = randomUUID();
     await prisma.userProfile.create({ data: { id: profileId, email: `${profileId}@example.com` } });

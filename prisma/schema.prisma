@@ -23,6 +23,14 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  tripPlan      TripPlan?
+}
+
+model TripPlan {
+  userId  String @id
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version Int
+  plan    Json
 }
 
 model Session {

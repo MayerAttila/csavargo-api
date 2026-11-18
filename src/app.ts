@@ -9,6 +9,8 @@ import { createAuth } from "./modules/auth/auth.js";
 import { createMailer, type Mailer } from "./modules/auth/mail.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { consumeAuthLimit } from "./modules/auth/rate-limit.js";
+import { registerTripRoutes } from "./modules/trips/routes.js";
+import type { PrismaClient } from "./generated/prisma/client.js";
 
 export async function buildApp(options: { config?: Config; mailer?: Mailer } = {}) {
   const config = options.config;
@@ -35,15 +37,18 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
     } } }, transform: jsonSchemaTransform,
   });
   let auth;
+  let prisma: PrismaClient | undefined;
   let consumeLimit;
   if (config) {
     const { createPrisma } = await import("./lib/prisma.js");
-    const prisma = createPrisma(config.DATABASE_URL);
+    const client = createPrisma(config.DATABASE_URL);
+    prisma = client;
     auth = createAuth(prisma, config, options.mailer ?? createMailer(config), app.log);
-    consumeLimit = (ip: string) => consumeAuthLimit(prisma, ip);
-    app.addHook("onClose", async () => { await prisma.$disconnect(); });
+    consumeLimit = (ip: string) => consumeAuthLimit(client, ip);
+    app.addHook("onClose", async () => { await client.$disconnect(); });
   }
   registerAuthRoutes(app, auth, config?.BETTER_AUTH_URL ?? "http://localhost:3000", consumeLimit);
+  registerTripRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
   app.get("/health", {
     schema: { response: { 200: z.object({ status: z.string(), service: z.string() }) } },
   }, async () => ({ status: "ok", service: "csavargo-api" }));
