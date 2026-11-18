@@ -39,6 +39,58 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     await prisma.user.deleteMany({ where: { email: { in: emails } } });
     await app?.close(); await prisma.$disconnect();
   });
+  it("manages private companion requests, enforces acceptance, and deduplicates concurrent requests", async () => {
+    const [sender, recipient, outsider] = [await signup(), await signup(), await signup()];
+    const path = "/api/companions";
+    const call = (method: "GET" | "POST" | "DELETE", url: string, cookie = "", payload?: { email: string }, origin = config.WEB_ORIGIN) =>
+      app.inject({ method, url, headers: { cookie, origin }, payload });
+    const invite = (cookie: string, address: string) => call("POST", path, cookie, { email: address });
+    const get = async (cookie: string) => {
+      const response = await call("GET", path, cookie);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      return response.json();
+    };
+    const empty = { accepted: [], incoming: [], outgoing: [] };
+    expect((await call("GET", path)).statusCode).toBe(401);
+    expect((await call("POST", path, sender.cookie, { email: recipient.email }, "https://foreign.example")).statusCode).toBe(403);
+    expect((await invite(sender.cookie, sender.email)).json().code).toBe("COMPANION_SELF");
+    expect((await invite(sender.cookie, `${randomUUID()}@example.test`)).statusCode).toBe(404);
+    expect(await get(sender.cookie)).toEqual(empty);
+
+    const crossed = await Promise.all([invite(sender.cookie, recipient.email.toUpperCase()), invite(recipient.cookie, sender.email)]);
+    expect(crossed.map(({ statusCode }) => statusCode).sort()).toEqual([204, 409]);
+    const initiator = crossed[0].statusCode === 204 ? sender : recipient;
+    const addressee = initiator === sender ? recipient : sender;
+    const outgoing = await get(initiator.cookie);
+    const incoming = await get(addressee.cookie);
+    const id = outgoing.outgoing[0].id;
+    const item = { id, name: "Teszt Utazó" };
+    expect(outgoing).toEqual({ ...empty, outgoing: [item] });
+    expect(incoming).toEqual({ ...empty, incoming: [item] });
+    expect((await invite(initiator.cookie, addressee.email)).statusCode).toBe(204);
+    expect(await get(outsider.cookie)).toEqual(empty);
+    const detail = `${path}/${id}`;
+    expect((await call("POST", `${detail}/accept`, initiator.cookie)).statusCode).toBe(404);
+    expect((await call("POST", `${detail}/accept`, outsider.cookie)).statusCode).toBe(404);
+    expect((await call("DELETE", detail, outsider.cookie)).statusCode).toBe(404);
+    expect((await call("POST", `${detail}/accept`, addressee.cookie)).statusCode).toBe(204);
+    expect((await call("POST", `${detail}/accept`, addressee.cookie)).statusCode).toBe(204);
+    expect(await get(initiator.cookie)).toEqual({ ...empty, accepted: [item] });
+    expect(await get(addressee.cookie)).toEqual({ ...empty, accepted: [item] });
+    expect((await invite(initiator.cookie, addressee.email)).json().code).toBe("COMPANION_ALREADY_ACCEPTED");
+    expect((await call("DELETE", detail, addressee.cookie)).statusCode).toBe(204);
+    expect(await get(initiator.cookie)).toEqual(empty);
+    expect(await get(addressee.cookie)).toEqual(empty);
+
+    for (let index = 0; index < 10; index++) {
+      expect((await invite(outsider.cookie, outsider.email)).statusCode).toBe(400);
+    }
+    const limited = await invite(outsider.cookie, outsider.email);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.headers["retry-after"]).toBe("60");
+  });
+
   it("V28/V29: creates isolated trips, scopes slugs to owners, and keeps the slug on rename", async () => {
     const owner = await signup();
     const other = await signup();

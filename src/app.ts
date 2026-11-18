@@ -10,6 +10,7 @@ import { createMailer, type Mailer } from "./modules/auth/mail.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { consumeAuthLimit } from "./modules/auth/rate-limit.js";
 import { registerTripRoutes } from "./modules/trips/routes.js";
+import { registerCompanionRoutes } from "./modules/companions/routes.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
 
 export async function buildApp(options: { config?: Config; mailer?: Mailer } = {}) {
@@ -49,6 +50,7 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
   }
   registerAuthRoutes(app, auth, config?.BETTER_AUTH_URL ?? "http://localhost:3000", consumeLimit);
   registerTripRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
+  registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
   app.get("/health", {
     schema: { response: { 200: z.object({ status: z.string(), service: z.string() }) } },
   }, async () => ({ status: "ok", service: "csavargo-api" }));

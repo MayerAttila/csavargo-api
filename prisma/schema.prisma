@@ -24,6 +24,21 @@ model User {
   sessions      Session[]
   accounts      Account[]
   tripPlans     TripPlan[]
+  companionFirst  Companion[] @relation("CompanionFirst")
+  companionSecond Companion[] @relation("CompanionSecond")
+}
+
+model Companion {
+  id         String    @id @default(uuid())
+  firstId    String
+  secondId   String
+  requesterId String
+  acceptedAt DateTime?
+  first      User      @relation("CompanionFirst", fields: [firstId], references: [id], onDelete: Cascade)
+  second     User      @relation("CompanionSecond", fields: [secondId], references: [id], onDelete: Cascade)
+
+  @@unique([firstId, secondId])
+  @@index([secondId])
 }
 
 model TripPlan {
