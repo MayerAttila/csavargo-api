@@ -11,6 +11,8 @@ import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { consumeAuthLimit } from "./modules/auth/rate-limit.js";
 import { registerTripRoutes } from "./modules/trips/routes.js";
 import { registerCompanionRoutes } from "./modules/companions/routes.js";
+import { registerTripInvitationRoutes } from "./modules/trips/invitations.js";
+import { createDestinationCoverLookup } from "./modules/trips/destination-cover.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
 
 export async function buildApp(options: { config?: Config; mailer?: Mailer } = {}) {
@@ -51,8 +53,11 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
     app.addHook("onClose", async () => { await client.$disconnect(); });
   }
   registerAuthRoutes(app, auth, config?.BETTER_AUTH_URL ?? "http://localhost:3000", consumeLimit);
-  registerTripRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
+  const webOrigin = config?.WEB_ORIGIN ?? "http://localhost:3000";
+  const lookupCover = createDestinationCoverLookup(webOrigin);
+  registerTripRoutes(app, auth, prisma, webOrigin, lookupCover);
   registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000", mailer);
+  registerTripInvitationRoutes(app, auth, prisma, webOrigin, lookupCover, mailer);
   app.get("/health", {
     schema: { response: { 200: z.object({ status: z.string(), service: z.string() }) } },
   }, async () => ({ status: "ok", service: "csavargo-api" }));

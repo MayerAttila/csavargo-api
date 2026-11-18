@@ -14,7 +14,7 @@ const place = z.strictObject({
   address: z.string().max(512).optional(),
   locality: z.string().max(200).optional(),
 });
-const plan = z.strictObject({
+export const plan = z.strictObject({
   destination: place,
   lodging: place.optional(),
   start: z.iso.date(),
@@ -30,7 +30,7 @@ const name = z.string().trim().min(1).max(200);
 const trip = z.object({ slug, name, version, plan });
 const summary = z.object({
   slug, name, destination: z.string(), start: z.iso.date(), end: z.iso.date(),
-  stopCount: z.number().int().nonnegative(),
+  stopCount: z.number().int().nonnegative(), companionCount: z.number().int().nonnegative(),
 });
 const params = z.object({ slug });
 const create = z.strictObject({ id: z.uuid(), name: name.optional(), destination: place, start: z.iso.date(), end: z.iso.date() })
@@ -52,10 +52,10 @@ function tripDetails(row: { slug: string; name: string; version: number; plan: u
   return { slug: row.slug, name: row.name, version: row.version, plan: plan.parse(row.plan) };
 }
 
-export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined, prisma: PrismaClient | undefined, publicUrl: string) {
+export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined, prisma: PrismaClient | undefined, publicUrl: string,
+  lookupCover: ReturnType<typeof createDestinationCoverLookup>) {
   const routes = app.withTypeProvider<ZodTypeProvider>();
   const origin = new URL(publicUrl).origin;
-  const lookupCover = createDestinationCoverLookup(publicUrl);
 
   routes.get("/api/trips", {
     schema: { operationId: "listTrips", tags: ["Trips"], security, response: { 200: z.array(summary), 401: unauthorizedSchema, 503: error } },
@@ -64,11 +64,13 @@ export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined,
     if (!auth || !prisma) return reply.code(503).send(unavailable);
     const session = await requireSession(auth, request, reply);
     if (!session) return;
-    const rows = await prisma.tripPlan.findMany({ where: { userId: session.user.id }, select: { slug: true, name: true, plan: true } });
+    const rows = await prisma.tripPlan.findMany({ where: { userId: session.user.id }, select: {
+      slug: true, name: true, plan: true, _count: { select: { invitations: { where: { acceptedAt: { not: null } } } } },
+    } });
     return rows.map((row) => {
       const { destination, start, end, days } = plan.parse(row.plan);
       const stopCount = days.reduce((count, day) => count + day.stops.length, 0);
-      return { slug: row.slug, name: row.name, destination: destination.label, start, end, stopCount };
+      return { slug: row.slug, name: row.name, destination: destination.label, start, end, stopCount, companionCount: row._count.invitations };
     }).sort((first, second) => first.start.localeCompare(second.start) || first.name.localeCompare(second.name, "hu"));
   });
 

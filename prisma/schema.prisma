@@ -26,6 +26,7 @@ model User {
   tripPlans     TripPlan[]
   companionFirst  Companion[] @relation("CompanionFirst")
   companionSecond Companion[] @relation("CompanionSecond")
+  tripInvitations TripInvitation[]
 }
 
 model Companion {
@@ -49,9 +50,23 @@ model TripPlan {
   name    String
   version Int
   plan    Json
+  invitations TripInvitation[]
 
   @@id([userId, id])
   @@unique([userId, slug])
+}
+
+model TripInvitation {
+  id          String    @id @default(uuid())
+  ownerId     String
+  tripId      String
+  recipientId String
+  acceptedAt  DateTime?
+  trip        TripPlan @relation(fields: [ownerId, tripId], references: [userId, id], onDelete: Cascade)
+  recipient   User     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, tripId, recipientId])
+  @@index([recipientId])
 }
 
 model Session {
