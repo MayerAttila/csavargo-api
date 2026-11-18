@@ -438,6 +438,48 @@
                           ],
                           "additionalProperties": false
                         },
+                        "arrival": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "departure": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "start": {
                           "type": "string",
                           "format": "date",
@@ -658,6 +700,48 @@
                             "label",
                             "coordinates"
                           ],
+                          "additionalProperties": false
+                        },
+                        "arrival": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "departure": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
                           "additionalProperties": false
                         },
                         "start": {
@@ -1004,6 +1088,48 @@
                           ],
                           "additionalProperties": false
                         },
+                        "arrival": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "departure": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "start": {
                           "type": "string",
                           "format": "date",
@@ -1300,6 +1426,48 @@
                         ],
                         "additionalProperties": false
                       },
+                      "arrival": {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "plane",
+                              "train",
+                              "bus",
+                              "car",
+                              "boat",
+                              "other"
+                            ]
+                          },
+                          "time": {
+                            "type": "string",
+                            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "departure": {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "plane",
+                              "train",
+                              "bus",
+                              "car",
+                              "boat",
+                              "other"
+                            ]
+                          },
+                          "time": {
+                            "type": "string",
+                            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
                       "start": {
                         "type": "string",
                         "format": "date",
@@ -1537,6 +1705,48 @@
                             "label",
                             "coordinates"
                           ],
+                          "additionalProperties": false
+                        },
+                        "arrival": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "departure": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
                           "additionalProperties": false
                         },
                         "start": {
@@ -3379,6 +3589,48 @@
                             "label",
                             "coordinates"
                           ],
+                          "additionalProperties": false
+                        },
+                        "arrival": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "departure": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "plane",
+                                "train",
+                                "bus",
+                                "car",
+                                "boat",
+                                "other"
+                              ]
+                            },
+                            "time": {
+                              "type": "string",
+                              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                            }
+                          },
                           "additionalProperties": false
                         },
                         "start": {
