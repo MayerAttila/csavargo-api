@@ -16,6 +16,7 @@ const place = z.strictObject({
 });
 const plan = z.strictObject({
   destination: place,
+  lodging: place.optional(),
   start: z.iso.date(),
   end: z.iso.date(),
   days: z.array(z.strictObject({ date: z.iso.date(), stops: z.array(place).min(1) })),
