@@ -39,37 +39,50 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     await prisma.user.deleteMany({ where: { email: { in: emails } } });
     await app?.close(); await prisma.$disconnect();
   });
-  it("V28: trip snapshots are private and stale versions cannot overwrite another save", async () => {
-    const firstUser = await signup();
-    const secondUser = await signup();
-    const url = "/api/trip-plan";
-    const get = (cookie: string) => app.inject({ url, headers: { cookie } });
-    const put = (cookie: string, payload: unknown, origin = config.WEB_ORIGIN) =>
-      app.inject({ method: "PUT", url, headers: { cookie, origin, "content-type": "application/json" }, payload: JSON.stringify(payload) });
+  it("V28/V29: creates isolated trips, scopes slugs to owners, and keeps the slug on rename", async () => {
+    const owner = await signup();
+    const other = await signup();
+    const url = "/api/trips";
+    const get = (path: string, cookie: string) => app.inject({ url: path, headers: { cookie } });
+    const write = (method: "POST" | "PUT", path: string, cookie: string, payload: unknown, origin = config.WEB_ORIGIN) =>
+      app.inject({ method, url: path, headers: { cookie, origin, "content-type": "application/json" }, payload: JSON.stringify(payload) });
+    const date = "2026-11-18";
     const destination = { id: "destination", label: "Pécs", coordinates: [18.23, 46.07] };
+    const input = { id: randomUUID(), destination, start: date, end: date };
     const first = { id: "museum", label: "Múzeum", coordinates: [18.24, 46.08] };
     const second = { id: "park", label: "Park", coordinates: [18.25, 46.09] };
-    const date = "2026-11-18";
     const plan = { destination, start: date, end: date, days: [{ date, stops: [first, second] }] };
 
-    expect((await app.inject({ url })).statusCode).toBe(401);
-    expect((await put("", { version: 0, plan })).statusCode).toBe(401);
-    expect((await put(firstUser.cookie, { version: 0, plan }, "https://example.test")).statusCode).toBe(403);
-    expect((await put(firstUser.cookie, { version: 0, plan: { ...plan, end: "2026-11-17" } })).statusCode).toBe(400);
-    const saved = await put(firstUser.cookie, { version: 0, plan });
+    expect((await get(url, "")).statusCode).toBe(401);
+    expect((await write("POST", url, owner.cookie, input, "https://example.test")).statusCode).toBe(403);
+    expect((await write("POST", url, owner.cookie, { ...input, end: "2026-11-17" })).statusCode).toBe(400);
+    const created = await write("POST", url, owner.cookie, input);
+    expect(created.statusCode, created.body).toBe(201);
+    const slug = "pecs-2026-11";
+    expect(created.json()).toEqual({ slug, name: "Pécs", version: 1, plan: { ...plan, days: [] } });
+    expect((await write("POST", url, owner.cookie, input)).json()).toEqual(created.json());
+    const another = await write("POST", url, owner.cookie, { ...input, id: randomUUID() });
+    expect(another.json()).toMatchObject({ slug: "pecs-2026-11-2", version: 1 });
+    expect((await get(url, owner.cookie)).json()).toHaveLength(2);
+    expect((await get(url, other.cookie)).json()).toEqual([]);
+
+    const detail = `${url}/${slug}`;
+    const edited = { name: "Pécsi hétvége", version: 1, plan };
+    expect((await get(detail, other.cookie)).statusCode).toBe(404);
+    expect((await write("PUT", detail, other.cookie, edited)).statusCode).toBe(404);
+    expect((await write("POST", url, other.cookie, input)).json()).toMatchObject({ slug });
+    const saved = await write("PUT", detail, owner.cookie, edited);
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(saved.json()).toEqual({ version: 1, plan });
-    const loaded = await get(firstUser.cookie);
+    expect(saved.json()).toEqual({ slug, name: edited.name, version: 2, plan });
+    const loaded = await get(detail, owner.cookie);
     expect(loaded.headers["cache-control"]).toBe("no-store");
     expect(loaded.json()).toEqual(saved.json());
-    expect((await get(secondUser.cookie)).json()).toEqual({ version: 0, plan: null });
-
-    const updatedPlan = { ...plan, days: [{ date, stops: [second, first] }] };
-    expect((await put(firstUser.cookie, { version: 1, plan: updatedPlan })).json()).toEqual({ version: 2, plan: updatedPlan });
-    expect((await put(firstUser.cookie, { version: 1, plan: updatedPlan })).json()).toEqual({ version: 2, plan: updatedPlan });
-    expect((await put(firstUser.cookie, { version: 1, plan })).statusCode).toBe(409);
-    expect((await get(firstUser.cookie)).json()).toEqual({ version: 2, plan: updatedPlan });
+    expect((await get(detail, other.cookie)).json()).toEqual(created.json());
+    expect((await write("PUT", detail, owner.cookie, edited)).json()).toEqual(saved.json());
+    expect((await write("PUT", detail, owner.cookie, { ...edited, name: "Elavult módosítás" })).statusCode).toBe(409);
+    expect((await get(`${url}/pecs-2026-11-2`, owner.cookie)).json()).toEqual(another.json());
   });
+
   it("V1/V6: registration grants immediate unverified access and preserves profiles", async () => {
     const profileId = randomUUID();
     await prisma.userProfile.create({ data: { id: profileId, email: `${profileId}@example.com` } });

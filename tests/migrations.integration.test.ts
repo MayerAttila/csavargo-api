@@ -26,6 +26,25 @@ describe.skipIf(!url)("additive migration", () => {
       expect(result.status, result.stdout + result.stderr).toBe(0);
       expect((await db.query(`SELECT email FROM "UserProfile" WHERE id=$1`, ["preserved-profile"])).rows).toEqual([{ email: "preserve@example.com" }]);
       expect((await db.query(`SELECT count(*) FROM "User"`)).rows[0].count).toBe("0");
+
+      // Exercise the upgrade from an account with an existing, versioned itinerary.
+      await db.query("CREATE SCHEMA legacy_upgrade");
+      await db.query("SET search_path TO legacy_upgrade");
+      for (const migration of ["202611100001_baseline", "202611100002_auth", "202611180001_trip_plan"]) {
+        await db.query(await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8"));
+      }
+      await db.query(`INSERT INTO "User" (id, name, email, "updatedAt") VALUES ($1, $2, $3, NOW())`,
+        ["legacy-user", "Utazó", "legacy@example.com"]);
+      const destination = { id: "pecs", label: "Pécs", coordinates: [18.23, 46.07] };
+      const date = "2026-11-18";
+      const plan = { destination, start: date, end: date, days: [{ date, stops: [
+        { id: "park", label: "Park", coordinates: [18.25, 46.09] },
+        { id: "museum", label: "Múzeum", coordinates: [18.24, 46.08] },
+      ] }] };
+      await db.query(`INSERT INTO "TripPlan" ("userId", version, plan) VALUES ($1, $2, $3)`, ["legacy-user", 4, plan]);
+      await db.query(await readFile("prisma/migrations/202611180002_multiple_trips/migration.sql", "utf8"));
+      expect((await db.query(`SELECT id, slug, name, version, plan FROM "TripPlan"`)).rows)
+        .toEqual([{ id: "legacy", slug: "pecs-2026-11", name: "Pécs", version: 4, plan }]);
     } finally {
       await db.end();
       await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
