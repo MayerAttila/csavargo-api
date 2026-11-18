@@ -6,14 +6,15 @@ import { readConfig } from "../src/lib/config.js";
 import { createPrisma } from "../src/lib/prisma.js";
 import { createAuth } from "../src/modules/auth/auth.js";
 import { consumeAuthLimit } from "../src/modules/auth/rate-limit.js";
-import type { AuthMail } from "../src/modules/auth/mail.js";
+import type { AppMail } from "../src/modules/auth/mail.js";
 
 const databaseUrl = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
   let app: FastifyInstance;
   const prisma = createPrisma(databaseUrl ?? "postgresql://localhost/unused");
   const config = readConfig({ NODE_ENV: "test", DATABASE_URL: databaseUrl ?? "postgresql://localhost/unused_test", BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters", BETTER_AUTH_URL: "http://localhost:3000", WEB_ORIGIN: "http://localhost:3000" });
-  const mails: AuthMail[] = [];
+  const mails: AppMail[] = [];
+  let failedCompanionAddress: string | undefined;
   const emails: string[] = [];
   let sequence = 0;
   const email = () => { const value = `${randomUUID()}@example.com`; emails.push(value); return value; };
@@ -32,7 +33,10 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
   beforeAll(async () => {
     if (!databaseUrl || !new URL(databaseUrl).pathname.endsWith("_test")) throw new Error("Use a dedicated database ending in _test");
     await prisma.rateLimit.deleteMany();
-    app = await buildApp({ config, mailer: async (mail) => { mails.push(mail); } });
+    app = await buildApp({ config, mailer: async (mail) => {
+      if (mail.kind === "companion-invite" && mail.to === failedCompanionAddress) throw new Error("Test mail delivery failure");
+      mails.push(mail);
+    } });
     await app.ready();
   });
   afterAll(async () => {
@@ -69,6 +73,10 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     expect(outgoing).toEqual({ ...empty, outgoing: [item] });
     expect(incoming).toEqual({ ...empty, incoming: [item] });
     expect((await invite(initiator.cookie, addressee.email)).statusCode).toBe(204);
+    expect(mails.filter(({ kind }) => kind === "companion-invite")).toEqual([{
+      kind: "companion-invite", to: addressee.email, requesterName: "Teszt Utazó",
+      url: `${config.WEB_ORIGIN}/belepes?folytatas=utitarsak`,
+    }]);
     expect(await get(outsider.cookie)).toEqual(empty);
     const detail = `${path}/${id}`;
     expect((await call("POST", `${detail}/accept`, initiator.cookie)).statusCode).toBe(404);
@@ -82,6 +90,15 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     expect((await call("DELETE", detail, addressee.cookie)).statusCode).toBe(204);
     expect(await get(initiator.cookie)).toEqual(empty);
     expect(await get(addressee.cookie)).toEqual(empty);
+
+    failedCompanionAddress = addressee.email;
+    try {
+      expect((await invite(initiator.cookie, addressee.email)).statusCode).toBe(204);
+      expect((await get(addressee.cookie)).incoming).toHaveLength(1);
+      expect(mails.filter(({ kind }) => kind === "companion-invite")).toHaveLength(1);
+    } finally {
+      failedCompanionAddress = undefined;
+    }
 
     for (let index = 0; index < 10; index++) {
       expect((await invite(outsider.cookie, outsider.email)).statusCode).toBe(400);

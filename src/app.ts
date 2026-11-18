@@ -40,17 +40,19 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
   let auth;
   let prisma: PrismaClient | undefined;
   let consumeLimit;
+  let mailer: Mailer | undefined;
   if (config) {
     const { createPrisma } = await import("./lib/prisma.js");
     const client = createPrisma(config.DATABASE_URL);
     prisma = client;
-    auth = createAuth(prisma, config, options.mailer ?? createMailer(config), app.log);
+    mailer = options.mailer ?? createMailer(config);
+    auth = createAuth(prisma, config, mailer, app.log);
     consumeLimit = (ip: string) => consumeAuthLimit(client, ip);
     app.addHook("onClose", async () => { await client.$disconnect(); });
   }
   registerAuthRoutes(app, auth, config?.BETTER_AUTH_URL ?? "http://localhost:3000", consumeLimit);
   registerTripRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
-  registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000");
+  registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000", mailer);
   app.get("/health", {
     schema: { response: { 200: z.object({ status: z.string(), service: z.string() }) } },
   }, async () => ({ status: "ok", service: "csavargo-api" }));

@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { Auth } from "../auth/auth.js";
+import type { Mailer } from "../auth/mail.js";
 import { consumeMinuteLimit } from "../auth/rate-limit.js";
 import { requireSession, unauthorizedSchema } from "../auth/routes.js";
 
@@ -21,7 +22,7 @@ function participant(userId: string) {
   return { OR: [{ firstId: userId }, { secondId: userId }] };
 }
 
-export function registerCompanionRoutes(app: FastifyInstance, auth: Auth | undefined, prisma: PrismaClient | undefined, publicUrl: string) {
+export function registerCompanionRoutes(app: FastifyInstance, auth: Auth | undefined, prisma: PrismaClient | undefined, publicUrl: string, mailer?: Mailer) {
   const routes = app.withTypeProvider<ZodTypeProvider>();
   const origin = new URL(publicUrl).origin;
 
@@ -61,13 +62,21 @@ export function registerCompanionRoutes(app: FastifyInstance, auth: Auth | undef
     if (!await consumeMinuteLimit(prisma, `companions-request:${requesterId}`, 10)) {
       return reply.code(429).header("retry-after", "60").send({ code: "COMPANION_RATE_LIMIT", message: "Túl sok jelölés. Próbáld újra egy perc múlva." });
     }
-    const user = await prisma.user.findUnique({ where: { email: request.body.email.toLowerCase() }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { email: request.body.email.toLowerCase() }, select: { id: true, email: true } });
     if (!user) return reply.code(404).send({ code: "COMPANION_EMAIL_NOT_FOUND", message: "Ehhez az e-mail-címhez nem tartozik fiók." });
     if (user.id === requesterId) return reply.code(400).send({ code: "COMPANION_SELF", message: "Saját magadat nem jelölheted meg útitársként." });
 
     const [firstId, secondId] = [requesterId, user.id].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
     const inserted = await prisma.companion.createMany({ data: { firstId, secondId, requesterId }, skipDuplicates: true });
-    if (inserted.count) return reply.code(204).send(null);
+    if (inserted.count) {
+      try {
+        await mailer?.({ kind: "companion-invite", to: user.email, requesterName: session.user.name,
+          url: new URL("/belepes?folytatas=utitarsak", origin).href });
+      } catch {
+        request.log.error({ event: "companion_mail_failed" }, "Companion request saved but email delivery failed");
+      }
+      return reply.code(204).send(null);
+    }
     const existing = await prisma.companion.findUnique({ where: { firstId_secondId: { firstId, secondId } },
       select: { requesterId: true, acceptedAt: true } });
     if (existing?.acceptedAt) return reply.code(409).send({ code: "COMPANION_ALREADY_ACCEPTED", message: "Már szerepel az útitársaid között." });

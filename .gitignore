@@ -1,6 +1,7 @@
 node_modules
 dist
 coverage
+.react-email
 .env
 .env.*
 !.env.example
