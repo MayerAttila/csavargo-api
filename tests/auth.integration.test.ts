@@ -67,6 +67,8 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     expect((await get(url, other.cookie)).json()).toEqual([]);
 
     const detail = `${url}/${slug}`;
+    expect((await get(`${detail}/cover`, "")).statusCode).toBe(401);
+    expect((await get(`${detail}/cover`, other.cookie)).statusCode).toBe(404);
     const edited = { name: "Pécsi hétvége", version: 1, plan };
     expect((await get(detail, other.cookie)).statusCode).toBe(404);
     expect((await write("PUT", detail, other.cookie, edited)).statusCode).toBe(404);

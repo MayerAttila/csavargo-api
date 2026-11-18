@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { Auth } from "../auth/auth.js";
 import { requireSession, unauthorizedSchema } from "../auth/routes.js";
+import { createDestinationCoverLookup, destinationCover } from "./destination-cover.js";
 
 const place = z.strictObject({
   id: z.string().min(1).max(512),
@@ -26,7 +27,10 @@ const version = z.number().int().min(1).max(2_147_483_647);
 const slug = z.string().max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const name = z.string().trim().min(1).max(200);
 const trip = z.object({ slug, name, version, plan });
-const summary = z.object({ slug, name, destination: z.string(), start: z.iso.date(), end: z.iso.date() });
+const summary = z.object({
+  slug, name, destination: z.string(), start: z.iso.date(), end: z.iso.date(),
+  stopCount: z.number().int().nonnegative(),
+});
 const params = z.object({ slug });
 const create = z.strictObject({ id: z.uuid(), name: name.optional(), destination: place, start: z.iso.date(), end: z.iso.date() })
   .refine(({ start, end }) => start <= end, { message: "Invalid trip calendar" });
@@ -50,6 +54,7 @@ function tripDetails(row: { slug: string; name: string; version: number; plan: u
 export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined, prisma: PrismaClient | undefined, publicUrl: string) {
   const routes = app.withTypeProvider<ZodTypeProvider>();
   const origin = new URL(publicUrl).origin;
+  const lookupCover = createDestinationCoverLookup(publicUrl);
 
   routes.get("/api/trips", {
     schema: { operationId: "listTrips", tags: ["Trips"], security, response: { 200: z.array(summary), 401: unauthorizedSchema, 503: error } },
@@ -60,8 +65,9 @@ export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined,
     if (!session) return;
     const rows = await prisma.tripPlan.findMany({ where: { userId: session.user.id }, select: { slug: true, name: true, plan: true } });
     return rows.map((row) => {
-      const { destination, start, end } = plan.parse(row.plan);
-      return { slug: row.slug, name: row.name, destination: destination.label, start, end };
+      const { destination, start, end, days } = plan.parse(row.plan);
+      const stopCount = days.reduce((count, day) => count + day.stops.length, 0);
+      return { slug: row.slug, name: row.name, destination: destination.label, start, end, stopCount };
     }).sort((first, second) => first.start.localeCompare(second.start) || first.name.localeCompare(second.name, "hu"));
   });
 
@@ -101,6 +107,24 @@ export function registerTripRoutes(app: FastifyInstance, auth: Auth | undefined,
     if (!session) return;
     const saved = await prisma.tripPlan.findUnique({ where: { userId_slug: { userId: session.user.id, slug: request.params.slug } } });
     return saved ? tripDetails(saved) : reply.code(404).send(notFound);
+  });
+
+  routes.get("/api/trips/:slug/cover", {
+    schema: {
+      operationId: "getTripCover", tags: ["Trips"], security, params,
+      response: { 200: z.object({ cover: destinationCover.nullable() }), 401: unauthorizedSchema, 404: error, 503: error },
+    },
+  }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!auth || !prisma) return reply.code(503).send(unavailable);
+    const session = await requireSession(auth, request, reply);
+    if (!session) return;
+    const saved = await prisma.tripPlan.findUnique({
+      where: { userId_slug: { userId: session.user.id, slug: request.params.slug } },
+      select: { plan: true },
+    });
+    if (!saved) return reply.code(404).send(notFound);
+    return { cover: await lookupCover(plan.parse(saved.plan).destination) };
   });
 
   routes.put("/api/trips/:slug", {
