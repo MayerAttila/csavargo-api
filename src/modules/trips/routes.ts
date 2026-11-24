@@ -14,14 +14,20 @@ const place = z.strictObject({
   address: z.string().max(512).optional(),
   locality: z.string().max(200).optional(),
 });
+const localTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+const lodgingTimes = { checkInTime: localTime.optional(), checkOutTime: localTime.optional() };
+const lodging = z.union([
+  place.extend(lodgingTimes),
+  z.strictObject({ label: place.shape.label, ...lodgingTimes }),
+]);
 const travelLeg = z.strictObject({
   mode: z.enum(["plane", "train", "bus", "car", "boat", "other"]).optional(),
-  time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
+  time: localTime.optional(),
 }).refine(({ mode, time }) => mode !== undefined || time !== undefined, { message: "Empty trip travel leg" });
 
 export const plan = z.strictObject({
   destination: place,
-  lodging: place.optional(),
+  lodging: lodging.optional(),
   arrival: travelLeg.optional(),
   departure: travelLeg.optional(),
   start: z.iso.date(),
