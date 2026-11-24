@@ -5,12 +5,25 @@ import type { FastifyBaseLogger } from "fastify";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { Config } from "../../lib/config.js";
 import type { Mailer } from "./mail.js";
+import { normalizeAvatar } from "./avatar.js";
+
+function normalizeUserName(value: unknown) {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!name || name.length > 100) throw new APIError("BAD_REQUEST", { code: "INVALID_NAME", message: "Adj meg egy 1–100 karakteres nevet." });
+  return name;
+}
 
 export function createAuth(prisma: PrismaClient, config: Config, sendMail: Mailer, log: FastifyBaseLogger) {
   const deliver = async (to: string, url: string, kind: "verification" | "reset") => {
     try { await sendMail({ to, url, kind }); }
     catch { log.error({ event: "auth_mail_failed", kind }, "Auth email delivery failed; user can request another email"); }
   };
+  async function imageFromAuth(image: string | null | undefined) {
+    if (config.storage && image !== undefined) {
+      throw new APIError("BAD_REQUEST", { code: "INVALID_AVATAR", message: "A profilképet a profiloldalon módosíthatod." });
+    }
+    return normalizeAvatar(image);
+  }
   return betterAuth({
     appName: "Csavargó",
     baseURL: config.BETTER_AUTH_URL,
@@ -49,13 +62,23 @@ export function createAuth(prisma: PrismaClient, config: Config, sendMail: Maile
         "/sign-up/email": { window: 60, max: 5 },
         "/request-password-reset": { window: 60, max: 5 },
         "/send-verification-email": { window: 60, max: 5 },
+        "/update-user": { window: 60, max: 10 },
+        "/change-password": { window: 60, max: 5 },
       },
     },
-    databaseHooks: { user: { create: { before: async (user) => {
-      const name = user.name.trim();
-      if (!name || name.length > 100) throw new APIError("BAD_REQUEST", { code: "INVALID_NAME", message: "Adj meg egy 1–100 karakteres nevet." });
-      return { data: { ...user, name } };
-    } } } },
+    databaseHooks: {
+      user: {
+        create: { before: async (user) => ({
+          data: { ...user, name: normalizeUserName(user.name), image: await imageFromAuth(user.image ?? undefined) },
+        }) },
+        update: { before: async (user) => {
+          const data = { ...user };
+          if (data.name !== undefined) data.name = normalizeUserName(data.name);
+          if (data.image !== undefined) data.image = await imageFromAuth(data.image);
+          return { data };
+        } },
+      },
+    },
   });
 }
 export type Auth = ReturnType<typeof createAuth>;

@@ -29,6 +29,13 @@ model User {
   tripInvitations TripInvitation[]
 }
 
+model AvatarCleanup {
+  key         String   @id
+  availableAt DateTime
+
+  @@index([availableAt])
+}
+
 model Companion {
   id         String    @id @default(uuid())
   firstId    String

@@ -8,18 +8,23 @@ import type { Config } from "./lib/config.js";
 import { createAuth } from "./modules/auth/auth.js";
 import { createMailer, type Mailer } from "./modules/auth/mail.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
+import { registerProfileRoutes } from "./modules/auth/profile-routes.js";
+import { createAvatarStore, type AvatarStore } from "./modules/auth/avatar-store.js";
+import { createAvatarCleanup } from "./modules/auth/avatar-cleanup.js";
 import { consumeAuthLimit } from "./modules/auth/rate-limit.js";
 import { registerTripRoutes } from "./modules/trips/routes.js";
 import { registerCompanionRoutes } from "./modules/companions/routes.js";
 import { registerTripInvitationRoutes } from "./modules/trips/invitations.js";
 import { createDestinationCoverLookup } from "./modules/trips/destination-cover.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
+import type { Writable } from "node:stream";
 
-export async function buildApp(options: { config?: Config; mailer?: Mailer } = {}) {
+export async function buildApp(options: { config?: Config; mailer?: Mailer; avatarStore?: AvatarStore; logStream?: Writable } = {}) {
   const config = options.config;
   const app = Fastify({
     trustProxy: config?.TRUSTED_PROXY ? config.TRUSTED_PROXY.split(",").map((item) => item.trim()) : false,
     logger: {
+      ...(options.logStream && { stream: options.logStream }),
       redact: ["req.headers.cookie", "req.headers.authorization", "res.headers.set-cookie", "password", "token"],
       serializers: { req: (request) => ({ method: request.method, url: safeRequestUrl(request.url), hostname: request.hostname }) },
     },
@@ -43,6 +48,8 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
   let prisma: PrismaClient | undefined;
   let consumeLimit;
   let mailer: Mailer | undefined;
+  const avatarStore = config?.storage ? options.avatarStore ?? createAvatarStore(config.storage) : undefined;
+  let avatarCleanup: ReturnType<typeof createAvatarCleanup> | undefined;
   if (config) {
     const { createPrisma } = await import("./lib/prisma.js");
     const client = createPrisma(config.DATABASE_URL);
@@ -50,10 +57,18 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer } = {
     mailer = options.mailer ?? createMailer(config);
     auth = createAuth(prisma, config, mailer, app.log);
     consumeLimit = (ip: string) => consumeAuthLimit(client, ip);
-    app.addHook("onClose", async () => { await client.$disconnect(); });
+    if (avatarStore) {
+      avatarCleanup = createAvatarCleanup(client, avatarStore, app.log);
+      app.addHook("onReady", async () => { avatarCleanup?.start(); });
+    }
+    app.addHook("onClose", async () => {
+      await avatarCleanup?.close();
+      await client.$disconnect();
+    });
   }
   registerAuthRoutes(app, auth, config?.BETTER_AUTH_URL ?? "http://localhost:3000", consumeLimit);
   const webOrigin = config?.WEB_ORIGIN ?? "http://localhost:3000";
+  registerProfileRoutes(app, auth, prisma, webOrigin, avatarStore, avatarCleanup?.run);
   const lookupCover = createDestinationCoverLookup(webOrigin);
   registerTripRoutes(app, auth, prisma, webOrigin, lookupCover);
   registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000", mailer);

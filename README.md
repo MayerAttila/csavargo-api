@@ -29,6 +29,19 @@ Auth: `/api/auth/*`; hitelesített profil: `GET /api/me`; OpenAPI: `GET /api/ope
 A regisztráció azonnal beléptet, a megerősítés opcionális. Jelszó-visszaállítás után újra be kell lépni.
 A `db:deploy` a korábbi `UserProfile` adatokat megőrzi és szükség esetén baseline-olja a scaffoldsémát.
 
+## Profilképek a Supabase Storage-ban
+
+Hozz létre egy privát, alapértelmezetten `avatars` nevű bucketet. A Supabase projekt URL-jét és egy szerveroldali
+titkos kulcsot az API környezetében állíts be a `SUPABASE_URL` és `SUPABASE_SECRET_KEY` változókkal.
+Eltérő bucketnévhez add meg a `SUPABASE_AVATAR_BUCKET` értékét. A szerver közvetíti a képkéréseket,
+és a meglévő Csavargó-munkamenet alapján ellenőrzi a hozzáférést.
+[Supabase bucket beállítása](https://supabase.com/docs/guides/storage/buckets/creating-buckets) ·
+[Supabase API-kulcsok](https://supabase.com/docs/guides/getting-started/api-keys)
+
+Futtasd a `pnpm db:deploy` parancsot, majd indítsd újra az API-t. A korábban adatbázisba mentett profilképek
+továbbra is megjelennek. Az új és lecserélt képek a beállított bucketbe kerülnek. Supabase-konfiguráció
+nélkül a helyi fejlesztéshez az adatbázisos képtárolás működik.
+
 ## Ellenőrzés
 
 `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.

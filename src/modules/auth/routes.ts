@@ -3,9 +3,10 @@ import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { Auth } from "./auth.js";
+import { avatarSource } from "./avatar.js";
 
 export const meSchema = z.object({ user: z.object({
-  id: z.string(), name: z.string(), email: z.email(), emailVerified: z.boolean(),
+  id: z.string(), name: z.string(), email: z.email(), emailVerified: z.boolean(), image: z.string().optional(),
 }) });
 export const unauthorizedSchema = z.object({ code: z.literal("UNAUTHORIZED"), message: z.string() });
 
@@ -52,7 +53,7 @@ export function registerAuthRoutes(app: FastifyInstance, auth: Auth | undefined,
     if (!auth) return reply.code(401).send({ code: "UNAUTHORIZED" as const, message: "A folytatáshoz jelentkezz be." });
     const session = await requireSession(auth, request, reply);
     if (!session) return;
-    const { id, name, email, emailVerified } = session.user;
-    return { user: { id, name, email, emailVerified } };
+    const { id, name, email, emailVerified, image } = session.user;
+    return { user: { id, name, email, emailVerified, image: avatarSource(image) } };
   });
 }

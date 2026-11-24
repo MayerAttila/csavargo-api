@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import sharp from "sharp";
 import { buildApp } from "../src/app.js";
 import { readConfig } from "../src/lib/config.js";
 import { createPrisma } from "../src/lib/prisma.js";
@@ -168,6 +169,122 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
       const duplicate = await request("/sign-up/email", { name: "Másik", email: user.email, password });
       expect(duplicate.statusCode).toBe(422);
     } finally { await prisma.userProfile.delete({ where: { id: profileId } }); }
+  });
+  it("stores and removes only the signed-in user's profile image", async () => {
+    const owner = await signup();
+    const other = await signup();
+    const png = await sharp({ create: { width: 192, height: 192, channels: 3, background: "#10b981" } }).png().toBuffer();
+    const image = "data:image/png;base64," + png.toString("base64");
+    const getMe = (cookie: string) => app.inject({ url: "/api/me", headers: { cookie } });
+    expect((await request("/update-user", { image })).statusCode).toBe(401);
+    const update = await request("/update-user", { image, name: "  Friss Név  " }, owner.cookie);
+    expect(update.statusCode, update.body).toBe(200);
+    const updated = (await getMe(owner.cookie)).json().user;
+    expect(updated.name).toBe("Friss Név");
+    expect(updated.image).toMatch(/^data:image\/webp;base64,/);
+    expect(await prisma.user.findUnique({ where: { id: owner.userId }, select: { image: true } })).toEqual({ image: updated.image });
+    expect((await getMe(other.cookie)).json().user).not.toHaveProperty("image");
+    const invalid = await request("/update-user", { image: "https://example.test/image.jpg" }, owner.cookie);
+    expect(invalid.statusCode).toBe(400);
+    const invalidName = await request("/update-user", { name: " ", image: null }, owner.cookie);
+    expect(invalidName.statusCode).toBe(400);
+    expect((await getMe(owner.cookie)).json().user.image).toBe(updated.image);
+    expect((await request("/update-user", { image: null }, owner.cookie)).statusCode).toBe(200);
+    expect((await getMe(owner.cookie)).json().user).not.toHaveProperty("image");
+  });
+  it("keeps Supabase profile images private, preserves the previous photo on failure and retries cleanup", async () => {
+    const owner = await signup();
+    const other = await signup();
+    const png = await sharp({ create: { width: 192, height: 192, channels: 3, background: "#10b981" } }).png().toBuffer();
+    const image = "data:image/png;base64," + png.toString("base64");
+    expect((await request("/update-user", { image }, owner.cookie)).statusCode).toBe(200);
+
+    const objects = new Map<string, Buffer>();
+    let failUpload = false;
+    let beforePut: (() => Promise<void>) | undefined;
+    const remove = vi.fn(async (key: string) => { objects.delete(key); });
+    const profileApp = await buildApp({
+      config: { ...config, storage: { SUPABASE_URL: "https://example.supabase.co", SUPABASE_AVATAR_BUCKET: "avatars", SUPABASE_SECRET_KEY: "sb_secret_test" } },
+      avatarStore: {
+        async put(key, body) {
+          if (failUpload) throw new Error("Simulated upload failure");
+          await beforePut?.();
+          objects.set(key, body);
+        },
+        async get(key) { return objects.get(key) ?? null; },
+        remove,
+      },
+    });
+    const get = (url: string, cookie?: string) => profileApp.inject({ url, headers: cookie ? { cookie } : {} });
+    const save = (payload: { image?: string | null; name?: string }, cookie?: string, origin = config.WEB_ORIGIN) =>
+      profileApp.inject({ method: "PATCH", url: "/api/me/profile", headers: { origin, ...(cookie && { cookie }) }, payload });
+    try {
+      expect((await get("/api/me", owner.cookie)).json().user.image).toMatch(/^data:image\/webp;base64,/);
+      expect((await save({ image })).statusCode).toBe(401);
+      expect((await save({ image }, owner.cookie, "https://foreign.example")).statusCode).toBe(403);
+      const upload = await save({ image, name: "Új Név" }, owner.cookie);
+      expect(upload.statusCode, upload.body).toBe(200);
+      const saved = upload.json().user;
+      expect(saved.name).toBe("Új Név");
+      expect(saved.image).toMatch(/^\/api\/me\/avatar\//);
+      const previousKey = [...objects.keys()][0];
+      expect(await prisma.user.findUnique({ where: { id: owner.userId }, select: { image: true } })).toEqual({ image: `supabase:${previousKey}` });
+      expect((await get(saved.image)).statusCode).toBe(401);
+      expect((await get(saved.image, other.cookie)).statusCode).toBe(404);
+      const photo = await get(saved.image, owner.cookie);
+      expect(photo.statusCode, photo.body).toBe(200);
+      expect(photo.headers["content-type"]).toBe("image/webp");
+      expect(photo.headers["cache-control"]).toBe("private, no-store");
+      expect(photo.rawPayload).toEqual(objects.get(previousKey));
+      const bypass = await profileApp.inject({ method: "POST", url: "/api/auth/update-user", headers: { cookie: owner.cookie }, payload: { image: null } });
+      expect(bypass.statusCode).toBe(400);
+
+      failUpload = true;
+      expect((await save({ image, name: "Mégse Név" }, owner.cookie)).statusCode).toBe(503);
+      expect((await get("/api/me", owner.cookie)).json().user).toEqual(saved);
+      failUpload = false;
+      remove.mockRejectedValueOnce(new Error("Simulated deletion failure"));
+      const replacement = await save({ image }, owner.cookie);
+      expect(replacement.statusCode, replacement.body).toBe(200);
+      const replacementSource = replacement.json().user.image;
+      expect(replacementSource).not.toBe(saved.image);
+      expect((await get(saved.image, owner.cookie)).statusCode).toBe(404);
+      await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(previousKey));
+      expect(objects.has(previousKey)).toBe(true);
+      await prisma.avatarCleanup.update({ where: { key: previousKey }, data: { availableAt: new Date(0) } });
+      expect((await save({ image: null }, owner.cookie)).json().user).not.toHaveProperty("image");
+      expect((await get(replacementSource, owner.cookie)).statusCode).toBe(404);
+      await vi.waitFor(() => expect(objects.size).toBe(0));
+
+      // Keep both requests at the upload step so they both compare against the same previous image.
+      let releaseUploads!: () => void;
+      const uploadsReady = new Promise<void>((resolve) => { releaseUploads = resolve; });
+      let ready = 0;
+      beforePut = async () => {
+        if (++ready === 2) releaseUploads();
+        await uploadsReady;
+      };
+      const concurrent = await Promise.all([save({ image }, owner.cookie), save({ image }, owner.cookie)]);
+      expect(concurrent.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+      const winner = concurrent.find((response) => response.statusCode === 200)!.json().user.image;
+      expect((await get(winner, owner.cookie)).statusCode).toBe(200);
+      await vi.waitFor(() => expect(objects.size).toBe(1));
+      expect((await save({ image: null }, owner.cookie)).statusCode).toBe(200);
+      await vi.waitFor(() => expect(objects.size).toBe(0));
+    } finally {
+      await profileApp.close();
+    }
+  });
+  it("changes the password only after verifying the current password and keeps the signed-in session", async () => {
+    const user = await signup();
+    const newPassword = "next-password-456";
+    const change = { currentPassword: password, newPassword };
+    expect((await request("/change-password", change)).statusCode).toBe(401);
+    expect((await request("/change-password", { ...change, currentPassword: "wrong-password" }, user.cookie)).json().code).toBe("INVALID_PASSWORD");
+    expect((await request("/change-password", change, user.cookie)).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/me", headers: { cookie: user.cookie } })).statusCode).toBe(200);
+    expect((await request("/sign-in/email", { email: user.email, password })).statusCode).toBe(401);
+    expect((await request("/sign-in/email", { email: user.email, password: newPassword })).statusCode).toBe(200);
   });
   it("V2: validates passwords and nonempty names", async () => {
     for (const value of ["short", "x".repeat(7), "x".repeat(129)]) {
