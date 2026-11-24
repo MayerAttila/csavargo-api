@@ -71,7 +71,7 @@ export async function buildApp(options: { config?: Config; mailer?: Mailer; avat
   registerProfileRoutes(app, auth, prisma, webOrigin, avatarStore, avatarCleanup?.run);
   const lookupCover = createDestinationCoverLookup(webOrigin);
   registerTripRoutes(app, auth, prisma, webOrigin, lookupCover);
-  registerCompanionRoutes(app, auth, prisma, config?.WEB_ORIGIN ?? "http://localhost:3000", mailer);
+  registerCompanionRoutes(app, auth, prisma, webOrigin, mailer, avatarStore);
   registerTripInvitationRoutes(app, auth, prisma, webOrigin, lookupCover, mailer);
   app.get("/health", {
     schema: { response: { 200: z.object({ status: z.string(), service: z.string() }) } },

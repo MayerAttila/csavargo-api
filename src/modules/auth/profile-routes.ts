@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { Auth } from "./auth.js";
-import { avatarBytes, avatarObjectKey, avatarSource, normalizeAvatar } from "./avatar.js";
+import { avatarBytes, avatarContentSchema, avatarObjectKey, avatarSource, normalizeAvatar } from "./avatar.js";
 import { AvatarStorageResponseError, type AvatarStore } from "./avatar-store.js";
 import { consumeMinuteLimit } from "./rate-limit.js";
 import { meSchema, requireSession, unauthorizedSchema } from "./routes.js";
@@ -105,7 +105,7 @@ export function registerProfileRoutes(app: FastifyInstance, auth: Auth | undefin
 
   routes.get("/api/me/avatar/:version", {
     schema: { ...shared, operationId: "getProfileAvatar", params: z.object({ version: z.uuid() }),
-      response: { 200: z.any().meta({ content: { "image/webp": { schema: { type: "string", format: "binary" } } } }),
+      response: { 200: avatarContentSchema,
         401: unauthorizedSchema, 404: apiError, 503: apiError } },
   }, async (request, reply) => {
     reply.header("cache-control", "private, no-store").header("x-content-type-options", "nosniff");

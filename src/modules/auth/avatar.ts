@@ -1,10 +1,12 @@
 import { APIError } from "better-auth/api";
 import sharp from "sharp";
+import { z } from "zod";
 
 const avatarSize = 192;
 const maxDataUrlLength = 300_000;
 const maxStoredAvatarLength = 65_536;
 const avatarPrefix = "data:image/webp;base64,";
+export const avatarContentSchema = z.any().meta({ content: { "image/webp": { schema: { type: "string", format: "binary" } } } });
 const signatures = {
   jpeg: Buffer.from([0xff, 0xd8, 0xff]),
   png: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

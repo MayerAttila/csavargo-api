@@ -85,8 +85,28 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
     expect((await call("DELETE", detail, outsider.cookie)).statusCode).toBe(404);
     expect((await call("POST", `${detail}/accept`, addressee.cookie)).statusCode).toBe(204);
     expect((await call("POST", `${detail}/accept`, addressee.cookie)).statusCode).toBe(204);
-    expect(await get(initiator.cookie)).toEqual({ ...empty, accepted: [item] });
-    expect(await get(addressee.cookie)).toEqual({ ...empty, accepted: [item] });
+    const stats = { ownedTrips: 0, sharedTrips: 0, companions: 1 };
+    expect(await get(initiator.cookie)).toEqual({ ...empty, accepted: [{ ...item, stats }] });
+    expect(await get(addressee.cookie)).toEqual({ ...empty, accepted: [{ ...item, stats }] });
+    const saveTrip = async (ownerId: string, recipientId: string, acceptedAt: Date | null) => {
+      const tripId = randomUUID();
+      await prisma.tripPlan.create({ data: { id: tripId, userId: ownerId, slug: tripId, name: "Pécs", version: 1, plan: {} } });
+      await prisma.tripInvitation.create({ data: { ownerId, tripId, recipientId, acceptedAt } });
+    };
+    await saveTrip(initiator.userId, addressee.userId, new Date());
+    await saveTrip(addressee.userId, initiator.userId, new Date());
+    await saveTrip(addressee.userId, initiator.userId, null);
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#10b981" } }).png().toBuffer();
+    expect((await request("/update-user", { image: "data:image/png;base64," + png.toString("base64") }, addressee.cookie)).statusCode).toBe(200);
+    const avatar = `${detail}/avatar`;
+    expect(await get(initiator.cookie)).toEqual({ ...empty, accepted: [{
+      ...item, image: avatar, stats: { ownedTrips: 2, sharedTrips: 2, companions: 1 },
+    }] });
+    expect(await get(addressee.cookie)).toEqual({ ...empty, accepted: [{
+      ...item, stats: { ownedTrips: 1, sharedTrips: 2, companions: 1 },
+    }] });
+    expect((await call("GET", avatar, initiator.cookie)).headers["content-type"]).toBe("image/webp");
+    expect((await call("GET", avatar, addressee.cookie)).statusCode).toBe(404);
     expect((await invite(initiator.cookie, addressee.email)).json().code).toBe("COMPANION_ALREADY_ACCEPTED");
     expect((await call("DELETE", detail, addressee.cookie)).statusCode).toBe(204);
     expect(await get(initiator.cookie)).toEqual(empty);
@@ -195,6 +215,7 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
   it("keeps Supabase profile images private, preserves the previous photo on failure and retries cleanup", async () => {
     const owner = await signup();
     const other = await signup();
+    const outsider = await signup();
     const png = await sharp({ create: { width: 192, height: 192, channels: 3, background: "#10b981" } }).png().toBuffer();
     const image = "data:image/png;base64," + png.toString("base64");
     expect((await request("/update-user", { image }, owner.cookie)).statusCode).toBe(200);
@@ -236,6 +257,26 @@ describe.skipIf(!databaseUrl)("auth integration (isolated PostgreSQL)", () => {
       expect(photo.headers["content-type"]).toBe("image/webp");
       expect(photo.headers["cache-control"]).toBe("private, no-store");
       expect(photo.rawPayload).toEqual(objects.get(previousKey));
+      const companion = (method: "POST" | "DELETE", url: string, cookie: string, payload?: { email: string }) =>
+        profileApp.inject({ method, url, headers: { cookie, origin: config.WEB_ORIGIN }, payload });
+      expect((await companion("POST", "/api/companions", other.cookie, { email: owner.email })).statusCode).toBe(204);
+      const pending = (await get("/api/companions", other.cookie)).json().outgoing[0];
+      expect(pending).toEqual({ id: expect.any(String), name: "Új Név" });
+      const companionPath = `/api/companions/${pending.id}`;
+      const companionImage = `${companionPath}/avatar`;
+      expect((await get(companionImage, other.cookie)).statusCode).toBe(404);
+      expect((await companion("POST", `${companionPath}/accept`, owner.cookie)).statusCode).toBe(204);
+      expect((await get("/api/companions", other.cookie)).json().accepted).toEqual([{
+        ...pending, image: companionImage, stats: { ownedTrips: 0, sharedTrips: 0, companions: 1 },
+      }]);
+      expect((await get(companionImage)).statusCode).toBe(401);
+      expect((await get(companionImage, outsider.cookie)).statusCode).toBe(404);
+      const sharedPhoto = await get(companionImage, other.cookie);
+      expect(sharedPhoto.statusCode).toBe(200);
+      expect(sharedPhoto.headers["cache-control"]).toBe("private, no-store");
+      expect(sharedPhoto.rawPayload).toEqual(photo.rawPayload);
+      expect((await companion("DELETE", companionPath, owner.cookie)).statusCode).toBe(204);
+      expect((await get(companionImage, other.cookie)).statusCode).toBe(404);
       const bypass = await profileApp.inject({ method: "POST", url: "/api/auth/update-user", headers: { cookie: owner.cookie }, payload: { image: null } });
       expect(bypass.statusCode).toBe(400);
 
